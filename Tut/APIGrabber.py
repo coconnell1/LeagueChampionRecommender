@@ -1,155 +1,141 @@
 #This tutorial was built by me, Farzain! You can ask me questions or troll me on Twitter (@farzatv)
 
 #First we need to import requests. Installing this is a bit tricky. I included a step by step process on how to get requests in readme.txt which is included in the file along with this program.
-import requests, sys, time
+import requests, sys, threading, time, queue
+
+def makeRequest(requestURL):
+    statusCode = 0
+    while statusCode < 200 or statusCode >= 300:
+        response = requests.get(requestURL);
+        statusCode = response.status_code
+        if(statusCode >= 500 and statusCode < 600):
+            time.sleep(2)
+        elif(statusCode == 429):
+            time.sleep(int(response.headers["Retry-After"]))
+        elif(statusCode >= 400 and statusCode <500):
+            print("ERROR CODE RETURNED:  " + str(statusCode))
+            print("URL THAT RETURNED ERROR:  " + requestURL)
+            return statusCode
+
+    return response.json();
 
 def requestSummonerData(region, summonerName, APIKey):
-
-    #Here is how I make my URL.  There are many ways to create these.
-    
     URL = "https://" + region + ".api.riotgames.com/lol/summoner/v4/summoners/by-name/" + summonerName + "?api_key=" + APIKey
-    print(URL)
-    #requests.get is a function given to us my our import "requests". It basically goes to the URL we made and gives us back a JSON.
-    response = requests.get(URL)
-    #Here I return the JSON we just got.
-    return response.json()
+    return makeRequest(URL)
 
 def requestRankedData(region, ID, APIKey):
     URL = "https://" + region + ".api.riotgames.com/lol/summoner/v4/summoners/by-name/" + ID + "?api_key=" + APIKey
-    print(URL)
-    response = requests.get(URL)
-    return response.json()
+    return makeRequest(URL)
 
-def requestChallenegerLeague(region, APIKey):
+def requestChallengerLeague(region, APIKey):
     URL = "https://" + region + ".api.riotgames.com/lol/league/v4/challengerleagues/by-queue/RANKED_SOLO_5x5" "?api_key=" + APIKey
-    #print(URL)
-    response = requests.get(URL)
-    return response.json()
+    return makeRequest(URL)
 
 def requestEncryptedID(region,summonerName, APIKey):
     URL = "https://" + region + ".api.riotgames.com/lol/summoner/v4/summoners/by-name/" + summonerName + "?api_key=" + APIKey
-    #print(URL)
-    response = requests.get(URL)
-    return response.json()
+    return makeRequest(URL)
 
 def requestMatchID(region,encryptedID, APIKey):
     URL = "https://" + region + ".api.riotgames.com/lol/match/v4/matchlists/by-account/" + encryptedID + "?api_key=" + APIKey
-    #print(URL)
-    response = requests.get(URL)
-    return response.json()
+    return makeRequest(URL)
 
 def requestMatchDetails(region,matchId,APIKey):
     URL = "https://" + region + ".api.riotgames.com/lol/match/v4/matches/" + matchId + "?api_key=" + APIKey
-    #print(URL)
-    response = requests.get(URL)
-    return response.json()
+    return makeRequest(URL)
 
 
+def analyzeMatch(region, APIKey, matchId, outputQueue):
+    print(region + ": " + str(matchId))
+    matchDetails = requestMatchDetails(region, str(matchId), APIKey)
 
-    
+    if type(matchDetails) == dict:
+        win = ""
+        blueTeamChampIds = []
+        redTeamChampIds = []
 
-def main():
+        # print(matchDetails)
 
+        if matchDetails["teams"][0]["win"] == 'Win':
+            win = "blue"
+        else:
+            win = "red"
 
-    #I first ask the user for three things, their region, summoner name, and API Key.
-    #These are the only three things I need from them in order to get create my URL and grab their ID.
-
-    region = "na1"
-    APIKey =  "RGAPI-32022707-b610-4b1a-aa40-a0d53b53e809"
-
-    print("\n Challeneger League")
-    responseJSON = requestChallenegerLeague(region, APIKey)
-
-    win = []
-    champIdArray = []
-    matchesPlayed = []
-    matchesCount = 0
-    sleepCount = 0
-    for e in range(len(responseJSON["entries"])):
-        summonerName = responseJSON["entries"][e]["summonerName"]
-        print(summonerName)
-
-        #print("\n Encrypted ID")
-        responseJSON2 = requestEncryptedID(region, summonerName, APIKey)
-
-        if 'accountId' in responseJSON2:
-            encryptedID = responseJSON2['accountId']
-            #print("\n Encrypted ID: " + encryptedID)
-
-            #print("\n Matches for ID")
-            responseJSON3 = requestMatchID(region, encryptedID, APIKey)
-
-            for m in range(len(responseJSON3["matches"])):
-                matchesCount+=1
-                print(matchesCount)
-                sleepCount+=1
-                if sleepCount > 90:
-                    time.sleep(50)
-                    sleepCount = 0
-
-                matchId = responseJSON3["matches"][m]["gameId"]
-                if matchId not in matchesPlayed:
-                    matchesPlayed.insert(-1, matchId)
-                    #print("\n Game ID: " + str(matchId))
-
-                    #print("\n Match Details")
-
-                    responseJSON4 = requestMatchDetails(region, str(matchId), APIKey)
+        for p in matchDetails["participants"]:
+            if p["teamId"] == 100:
+                blueTeamChampIds.append(p["championId"])
+            else:
+                redTeamChampIds.append(p["championId"])
+        # see updating as it progresses
+        #print("\n Team W/L: " + str(win))
+        #print("\n Team Champion Ids: " + str(champIdArray))
 
 
-                    championTeam1Ids = []
-                    championTeam2Ids = []
+def analyzePlayer(region, APIKey, player, analyzedMatches, outputQueue):
+    summonerName = player["summonerName"]
+    #print(summonerName)
 
-                    if "teams" in responseJSON4:
-                        for j in range(len(responseJSON4["teams"])):
-                            win.insert(-1, responseJSON4["teams"][j]["win"])
+    # print("\n Encrypted ID")
+    encryptedID = requestEncryptedID(region, summonerName, APIKey)['accountId']
+    # print("\n Encrypted ID: " + encryptedID)
+
+    if(type(encryptedID) == str):
+        # print("\n Matches for ID")
+        response = requestMatchID(region, encryptedID, APIKey)
+        if type(response) == dict:
+            matchList = response["matches"]
+
+            for m in matchList:
+                matchId = m["gameId"]
+                if matchId not in analyzedMatches:
+                    analyzedMatches.add(matchId)
+                    analyzeMatch(region, APIKey, matchId, outputQueue)
 
 
-                        for i in range(10):
-                            if i < 5:
-                                championTeam1Ids.insert(-1, responseJSON4["participants"][i]["championId"])
-                            else:
-                                championTeam2Ids.insert(-1, responseJSON4["participants"][i]["championId"])
-                        champIdArray.insert(-1, championTeam1Ids)
-                        champIdArray.insert(-1, championTeam2Ids)
-
-                        # see updating as it progresses
-                        #print("\n Team W/L: " + str(win))
-                        #print("\n Team Champion Ids: " + str(champIdArray))
+def analyzeLeague(region, APIKey, league, analyzedMatches, outputQueue):
+    players = league["entries"]
+    for p in players:
+        if(type(p) == dict):
+            analyzePlayer(region, APIKey, p, analyzedMatches, outputQueue)
 
 
-    #Change to own machine
-    filename = r'C:\Users\cobio\Desktop\LeagueChampionRecommender\leagueChampData.txt'
+def analyzeRegion(region, APIKey, outputQueue):
+    analyzedMatches = set()
+
+    challengerLeague = requestChallengerLeague(region, APIKey)
+    if(type(challengerLeague) == dict):
+        analyzeLeague(region, APIKey, challengerLeague, analyzedMatches, outputQueue)
+
+
+def threadsStillRunning(threads):
+    running = False
+    for t in threads:
+        if t.is_alive():
+            running = True
+    return running
+
+
+def printToFile():
+    # Change to own machine
+    filename = r'D:\Classes\COMP 490\LeagueChampionRecommender\Tut\leagueChampData.txt'
     with open(filename, 'w') as file_object:
         file_object.write(str(win) + str(champIdArray))
 
 
-    print("\n Team W/L: " + str(win))
-    print("\n Team Champion Ids: " + str(champIdArray))
+def main():
+
+    regions = ["na1", "br1", "eun1", "euw1", "jp1", "kr", "la1", "la2", "oc1", "tr1", "ru"]
+    regionThreads = []
+    APIKey = "RGAPI-f1b010ee-8c01-4dc5-9f2b-572e67d643f3"
+    outputQueue = queue.Queue()
+
+    for r in regions:
+        t = threading.Thread(target=analyzeRegion, args=(r,APIKey,-1))
+        t.start();
+        regionThreads.insert(-1, t)
+
+    while(threadsStillRunning(regionThreads) or not outputQueue.empty()):
+        printToFile(outputQueue.get())
 
 
-
-
-
-
-
-
-
-
-
-          #I send these three pieces off to my requestData function which will create the URL and give me back a JSON that has the ID for that specific summoner.
-    #Once again, what requestData returns is a JSON.
-    #responseJSON  = requestSummonerData(region, summonerName, APIKey)
-    
-    #ID = responseJSON['id']
-    #ID = str(ID)
-    #print(ID)
-    #responseJSON2 = requestRankedData(region, ID, APIKey)
-    #print(responseJSON2[ID][0]['tier'])
-    #print(responseJSON2[ID][0]['entries'][0]['division'])
-    #print(responseJSON2[ID][0]['entries'][0]['leaguePoints'])
-
-#This starts my program!
 if __name__ == "__main__":
     main()
-
