@@ -6,16 +6,22 @@ import requests, sys, threading, time, queue
 def makeRequest(requestURL):
     statusCode = 0
     while statusCode < 200 or statusCode >= 300:
-        response = requests.get(requestURL);
-        statusCode = response.status_code
-        if(statusCode >= 500 and statusCode < 600):
-            time.sleep(2)
-        elif(statusCode == 429):
-            time.sleep(int(response.headers["Retry-After"]))
-        elif(statusCode >= 400 and statusCode <500):
-            print("ERROR CODE RETURNED:  " + str(statusCode))
-            print("URL THAT RETURNED ERROR:  " + requestURL)
-            return statusCode
+        try:
+            response = requests.get(requestURL);
+            statusCode = response.status_code
+            if statusCode >= 500 and statusCode < 600:
+                time.sleep(2)
+            elif statusCode == 429:
+                if "Retry-After" in response.headers:
+                    time.sleep(int(response.headers["Retry-After"]))
+                else:
+                    time.sleep(.5)
+            elif statusCode >= 400 and statusCode <500:
+                print("ERROR CODE RETURNED:  " + str(statusCode))
+                print("URL THAT RETURNED ERROR:  " + requestURL)
+                return statusCode
+        except:
+            print("Socket Error!")
 
     return response.json();
 
@@ -29,6 +35,14 @@ def requestRankedData(region, ID, APIKey):
 
 def requestChallengerLeague(region, APIKey):
     URL = "https://" + region + ".api.riotgames.com/lol/league/v4/challengerleagues/by-queue/RANKED_SOLO_5x5" "?api_key=" + APIKey
+    return makeRequest(URL)
+
+def requestGrandMasterLeague(region, APIKey):
+    URL = "https://" + region + ".api.riotgames.com/lol/league/v4/grandmasterleagues/by-queue/RANKED_SOLO_5x5" "?api_key=" + APIKey
+    return makeRequest(URL)
+
+def requestMasterLeague(region, APIKey):
+    URL = "https://" + region + ".api.riotgames.com/lol/league/v4/masterleagues/by-queue/RANKED_SOLO_5x5" "?api_key=" + APIKey
     return makeRequest(URL)
 
 def requestEncryptedID(region,summonerName, APIKey):
@@ -45,7 +59,7 @@ def requestMatchDetails(region,matchId,APIKey):
 
 
 def analyzeMatch(region, APIKey, matchId, outputQueue):
-    print(region + ": " + str(matchId))
+    #print(region + ": " + str(matchId))
     matchDetails = requestMatchDetails(region, str(matchId), APIKey)
 
     if type(matchDetails) == dict:
@@ -65,6 +79,13 @@ def analyzeMatch(region, APIKey, matchId, outputQueue):
                 blueTeamChampIds.append(p["championId"])
             else:
                 redTeamChampIds.append(p["championId"])
+
+        result = [region, str(matchId), win]
+        for c in blueTeamChampIds:
+            result.append(str(c))
+        for c in redTeamChampIds:
+            result.append(str(c))
+        outputQueue.put(result)
         # see updating as it progresses
         #print("\n Team W/L: " + str(win))
         #print("\n Team Champion Ids: " + str(champIdArray))
@@ -75,20 +96,21 @@ def analyzePlayer(region, APIKey, player, analyzedMatches, outputQueue):
     #print(summonerName)
 
     # print("\n Encrypted ID")
-    encryptedID = requestEncryptedID(region, summonerName, APIKey)['accountId']
+    result = requestEncryptedID(region, summonerName, APIKey)
     # print("\n Encrypted ID: " + encryptedID)
+    if type(result) == dict:
+        encryptedID = result['accountId']
+        if(type(encryptedID) == str):
+            # print("\n Matches for ID")
+            response = requestMatchID(region, encryptedID, APIKey)
+            if type(response) == dict:
+                matchList = response["matches"][:1000]
 
-    if(type(encryptedID) == str):
-        # print("\n Matches for ID")
-        response = requestMatchID(region, encryptedID, APIKey)
-        if type(response) == dict:
-            matchList = response["matches"]
-
-            for m in matchList:
-                matchId = m["gameId"]
-                if matchId not in analyzedMatches:
-                    analyzedMatches.add(matchId)
-                    analyzeMatch(region, APIKey, matchId, outputQueue)
+                for m in matchList:
+                    matchId = m["gameId"]
+                    if matchId not in analyzedMatches:
+                        analyzedMatches.add(matchId)
+                        analyzeMatch(region, APIKey, matchId, outputQueue)
 
 
 def analyzeLeague(region, APIKey, league, analyzedMatches, outputQueue):
@@ -98,12 +120,17 @@ def analyzeLeague(region, APIKey, league, analyzedMatches, outputQueue):
             analyzePlayer(region, APIKey, p, analyzedMatches, outputQueue)
 
 
-def analyzeRegion(region, APIKey, outputQueue):
-    analyzedMatches = set()
-
+def analyzeRegion(region, APIKey, analyzedMatches, outputQueue):
     challengerLeague = requestChallengerLeague(region, APIKey)
     if(type(challengerLeague) == dict):
         analyzeLeague(region, APIKey, challengerLeague, analyzedMatches, outputQueue)
+    grandMasterLeague = requestGrandMasterLeague(region, APIKey)
+    if (type(grandMasterLeague) == dict):
+        analyzeLeague(region, APIKey, grandMasterLeague, analyzedMatches, outputQueue)
+    masterLeague = requestMasterLeague(region, APIKey)
+    if (type(masterLeague) == dict):
+        analyzeLeague(region, APIKey, masterLeague, analyzedMatches, outputQueue)
+    print("Done with Challenger league from " + region)
 
 
 def threadsStillRunning(threads):
@@ -114,27 +141,55 @@ def threadsStillRunning(threads):
     return running
 
 
-def printToFile():
-    # Change to own machine
-    filename = r'D:\Classes\COMP 490\LeagueChampionRecommender\Tut\leagueChampData.txt'
-    with open(filename, 'w') as file_object:
-        file_object.write(str(win) + str(champIdArray))
+def printToFile(game, file):
+    with open(file, 'a') as gameDataFile:
+        gameDataFile.write(", ".join(game))
+        gameDataFile.write("\n")
+
+def parseLine(line, regionMatches):
+    parsedLine = line.split(", ")
+    regionMatches[parsedLine[0]].add(int(parsedLine[1]))
+    #print("Adding existing match with region: " + parsedLine[0] + " And ID: " + parsedLine[1])
+
+def parseExistingMatches(regionMatches, filename):
+    file = open(filename, "r")
+    line = file.readline()
+    while line != "":
+        parseLine(line, regionMatches)
+        line = file.readline()
 
 
 def main():
-
-    regions = ["na1", "br1", "eun1", "euw1", "jp1", "kr", "la1", "la2", "oc1", "tr1", "ru"]
+    regionMatches = {
+        "na1": set(),
+        "br1": set(),
+        "eun1": set(),
+        "euw1": set(),
+        "jp1": set(),
+        "kr": set(),
+        "la1": set(),
+        "la2": set(),
+        "oc1": set(),
+        "tr1": set(),
+        "ru": set()
+    }
     regionThreads = []
-    APIKey = "RGAPI-f1b010ee-8c01-4dc5-9f2b-572e67d643f3"
+    APIKey = "RGAPI-16fc3957-3935-440e-848c-cf606b531710"
+    # Change to own machine
+    filename = r'D:\Classes\COMP 490\LeagueChampionRecommender\Tut\leagueChampData.txt'
     outputQueue = queue.Queue()
 
-    for r in regions:
-        t = threading.Thread(target=analyzeRegion, args=(r,APIKey,-1))
-        t.start();
+    parseExistingMatches(regionMatches, filename)
+
+    for r in regionMatches.keys():
+        t = threading.Thread(target=analyzeRegion, args=(r,APIKey,regionMatches[r],outputQueue))
+        t.start()
         regionThreads.insert(-1, t)
 
     while(threadsStillRunning(regionThreads) or not outputQueue.empty()):
-        printToFile(outputQueue.get())
+        game = outputQueue.get()
+        if type(game) == list:
+            printToFile(game, filename)
 
 
 if __name__ == "__main__":
