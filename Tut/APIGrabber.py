@@ -1,7 +1,7 @@
 #This tutorial was built by me, Farzain! You can ask me questions or troll me on Twitter (@farzatv)
 
 #First we need to import requests. Installing this is a bit tricky. I included a step by step process on how to get requests in readme.txt which is included in the file along with this program.
-import requests, sys, threading, time, queue
+import requests, threading, time, queue
 
 def makeRequest(requestURL):
     statusCode = 0
@@ -174,7 +174,7 @@ def main():
         "ru": set()
     }
     regionThreads = []
-    APIKey = "RGAPI-16fc3957-3935-440e-848c-cf606b531710"
+    APIKey = "RGAPI-3eabc4f5-bf79-4161-b7e3-1b14ef7e27b0"
     # Change to own machine
     filename = r'D:\Classes\COMP 490\LeagueChampionRecommender\Tut\leagueChampData.txt'
     outputQueue = queue.Queue()
