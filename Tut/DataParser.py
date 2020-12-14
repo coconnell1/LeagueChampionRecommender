@@ -156,8 +156,8 @@ def main():
         [0.51, 0.38, 0.25, 0.34, 0.21]
     ]
 
-    sourceFileName = r'D:\Classes\COMP 490\LeagueChampionRecommender\Tut\leagueChampData.txt'
-    targetFileName = r'D:\Classes\COMP 490\LeagueChampionRecommender\Tut\ParsedGameData.txt'
+    sourceFileName = r'C:\Users\cobio\Desktop\LeagueChampionRecommender\Tut\leagueChampData.txt'
+    targetFileName = r'C:\Users\cobio\Desktop\LeagueChampionRecommender\Tut\ParsedGameData.txt'
     response = requests.get("https://ddragon.leagueoflegends.com/cdn/10.24.1/data/en_US/champion.json").json()
     data = response["data"]
     mappingTable = {}
