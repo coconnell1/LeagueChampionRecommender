@@ -2,7 +2,7 @@
 
 All information regarding the project can be found in notebook located at LeagueChampionRecommender/Jupyter Notebooks/Oracle Lens Neural Network.ipynb. This contains a report and the code used for the project.
 
-This project uses neural networks to determine if we are able to accurately predict the outcome of a League of Legends game by only using pregame character selection data. 
+This project uses a neural network to determine if we are able to accurately predict the outcome of a League of Legends game by only using pregame character selection data. 
 
 We interacted with the Riot Games API to access this data.
 
